@@ -5,36 +5,35 @@ import pandas as pd
 
 CARPETA_DATOS = "datos"
 
-# Catálogo de ligas con fuentes reales abiertas (Football-Data.co.uk) y soporte Sudamérica/Internacional
 CATALOGO_COMPETICIONES = {
     "1": {
         "nombre": "Premier League (Inglaterra)",
         "codigo": "E0",
-        "url": "https://www.football-data.co.uk/mmz4281/2526/E0.csv",
+        "url": "https://www.football-data.co.uk/mmz4281/2627/E0.csv",
         "tipo": "csv_eu"
     },
     "2": {
         "nombre": "LaLiga EA Sports (España)",
         "codigo": "SP1",
-        "url": "https://www.football-data.co.uk/mmz4281/2526/SP1.csv",
+        "url": "https://www.football-data.co.uk/mmz4281/2627/SP1.csv",
         "tipo": "csv_eu"
     },
     "3": {
         "nombre": "Serie A (Italia)",
         "codigo": "I1",
-        "url": "https://www.football-data.co.uk/mmz4281/2526/I1.csv",
+        "url": "https://www.football-data.co.uk/mmz4281/2627/I1.csv",
         "tipo": "csv_eu"
     },
     "4": {
         "nombre": "Bundesliga (Alemania)",
         "codigo": "D1",
-        "url": "https://www.football-data.co.uk/mmz4281/2526/D1.csv",
+        "url": "https://www.football-data.co.uk/mmz4281/2627/D1.csv",
         "tipo": "csv_eu"
     },
     "5": {
         "nombre": "Ligue 1 (Francia)",
         "codigo": "F1",
-        "url": "https://www.football-data.co.uk/mmz4281/2526/F1.csv",
+        "url": "https://www.football-data.co.uk/mmz4281/2627/F1.csv",
         "tipo": "csv_eu"
     },
     "6": {
@@ -64,7 +63,7 @@ CATALOGO_COMPETICIONES = {
 }
 
 def _generar_dataset_base(codigo: str) -> pd.DataFrame:
-    """Genera/carga datasets estructurados para ligas sin CSV abierto directo (Colombia / Torneos)."""
+    """Genera datasets base para competiciones sin CSV abierto directo."""
     if codigo == "COL":
         partidos = [
             ("Atletico Nacional", "Millonarios", 2, 1), ("America de Cali", "Junior", 2, 0),
@@ -81,7 +80,6 @@ def _generar_dataset_base(codigo: str) -> pd.DataFrame:
             ("Atletico Nacional", "Bucaramanga", 2, 1), ("Deportivo Cali", "Junior", 0, 2)
         ]
     else:
-        # UEFA Champions League & Selecciones Internacionales
         partidos = [
             ("Real Madrid", "Manchester City", 3, 2), ("Bayern Munich", "Arsenal", 2, 1),
             ("Barcelona", "PSG", 3, 1), ("Inter Milan", "Atletico Madrid", 2, 0),
@@ -98,8 +96,7 @@ def _generar_dataset_base(codigo: str) -> pd.DataFrame:
 
 def cargar_datos_competicion(opcion: str, forzar_actualizacion: bool = False) -> tuple[str, pd.DataFrame]:
     """
-    Descarga o carga desde caché local los resultados históricos de la liga seleccionada
-    y los normaliza al formato estándar ['local', 'visitante', 'goles_local', 'goles_visitante'].
+    Descarga o carga desde caché local los resultados históricos y tiros al arco (si están disponibles).
     """
     comp = CATALOGO_COMPETICIONES[opcion]
     os.makedirs(CARPETA_DATOS, exist_ok=True)
@@ -113,32 +110,37 @@ def cargar_datos_competicion(opcion: str, forzar_actualizacion: bool = False) ->
             df = pd.read_csv(ruta_local)
         return comp["nombre"], df
 
-    # Descarga desde fuente externa si no existe en caché o si el usuario pidió actualizar
-    if not os.path.exists(ruta_local) or forzar_actualizacion:
+    # Verificar si un caché europeo antiguo necesita actualizarse para incluir tiros al arco
+    necesita_upgrade_columnas = False
+    if os.path.exists(ruta_local) and comp["tipo"] == "csv_eu":
+        df_check = pd.read_csv(ruta_local, nrows=1)
+        if "tiros_arco_local" not in df_check.columns:
+            necesita_upgrade_columnas = True
+
+    if not os.path.exists(ruta_local) or forzar_actualizacion or necesita_upgrade_columnas:
         try:
-            print(f"[INFO] Descargando datos actualizados de {comp['nombre']}...")
             resp = requests.get(comp["url"], timeout=15)
             resp.raise_for_status()
             raw_df = pd.read_csv(io.StringIO(resp.text))
 
             if comp["tipo"] == "csv_eu":
-                df = raw_df[["HomeTeam", "AwayTeam", "FTHG", "FTAG"]].copy()
+                if "HST" in raw_df.columns and "AST" in raw_df.columns:
+                    df = raw_df[["HomeTeam", "AwayTeam", "FTHG", "FTAG", "HST", "AST"]].copy()
+                    df.columns = ["local", "visitante", "goles_local", "goles_visitante", "tiros_arco_local", "tiros_arco_visita"]
+                else:
+                    df = raw_df[["HomeTeam", "AwayTeam", "FTHG", "FTAG"]].copy()
+                    df.columns = ["local", "visitante", "goles_local", "goles_visitante"]
             else:
-                # Ligas extra (Brasil, Argentina) toman las últimas 380 jornadas recientes
                 df = raw_df[["Home", "Away", "HG", "AG"]].tail(380).copy()
+                df.columns = ["local", "visitante", "goles_local", "goles_visitante"]
 
-            df.columns = ["local", "visitante", "goles_local", "goles_visitante"]
-            df = df.dropna()
+            df = df.dropna(subset=["local", "visitante", "goles_local", "goles_visitante"])
             df.to_csv(ruta_local, index=False)
-            print(f"[OK] Dataset guardado en caché: {ruta_local} ({len(df)} partidos)")
             return comp["nombre"], df
 
         except Exception as e:
-            print(f"[!] No se pudo conectar al servidor remoto ({e}).")
             if os.path.exists(ruta_local):
-                print("[INFO] Cargando última copia disponible desde caché local...")
                 return comp["nombre"], pd.read_csv(ruta_local)
-            raise RuntimeError("No hay conexión a internet ni caché local disponible para esta liga.")
+            raise RuntimeError(f"No hay conexión a internet ni caché local disponible ({e}).")
 
-    df = pd.read_csv(ruta_local)
-    return comp["nombre"], df
+    return comp["nombre"], pd.read_csv(ruta_local)

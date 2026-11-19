@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Stats Analyzer | Motor Poisson & xG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-lg">
+                    xG
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white">Football Statistical Analyzer</h1>
+                    <p class="text-xs text-slate-400">Modelado Probabilístico Dixon-Coles, Forma Reciente & Tiros al Arco</p>
+                </div>
+            </div>
+            <span id="badgePartidos" class="text-xs bg-slate-800 text-emerald-400 border border-slate-700 px-3 py-1.5 rounded-full">
+                Cargando base de datos...
+            </span>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-8 space-y-8">
+
+        <!-- Panel de Selección -->
+        <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        1. Competición / Liga
+                    </label>
+                    <select id="selectLiga" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500">
+                    </select>
+                </div>
+
+                <div class="md:col-span-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        2. Equipo Local
+                    </label>
+                    <select id="selectLocal" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500">
+                    </select>
+                </div>
+
+                <div class="md:col-span-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                        3. Equipo Visitante
+                    </label>
+                    <select id="selectVisitante" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500">
+                    </select>
+                </div>
+
+                <div class="md:col-span-2">
+                    <button id="btnAnalizar" onclick="ejecutarAnalisis()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 px-4 rounded-xl transition shadow-lg shadow-emerald-900/30 text-sm">
+                        Calcular xG
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                <span id="infoLigaActiva">Selecciona una liga para cargar los historiales de partidos.</span>
+                <button onclick="cargarEquipos(true)" class="text-emerald-400 hover:text-emerald-300 underline">
+                    Forzar actualización desde servidor remoto
+                </button>
+            </div>
+        </section>
+
+        <div id="alertaError" class="hidden bg-red-950/60 border border-red-700 text-red-200 px-4 py-3 rounded-xl text-sm"></div>
+
+        <!-- Panel de Resultados -->
+        <section id="panelResultados" class="hidden space-y-6">
+
+            <!-- Banner Enfrentamiento, xG y Forma Reciente -->
+            <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-700/70">
+                    <span id="resCompeticion" class="text-xs uppercase tracking-widest text-emerald-400 font-semibold"></span>
+                    <span id="resModeloActivo" class="text-xs bg-slate-950 text-slate-300 border border-slate-700 px-2.5 py-1 rounded-md"></span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 items-center text-center gap-6">
+                    <!-- Local -->
+                    <div class="space-y-2">
+                        <h2 id="resNombreLocal" class="text-xl sm:text-2xl font-bold text-white"></h2>
+                        <span class="block text-xs text-slate-400">Local</span>
+                        <div class="inline-block bg-slate-950/80 border border-slate-700 px-5 py-2.5 rounded-xl">
+                            <span class="block text-xs text-slate-400">Goles Esperados (xG)</span>
+                            <span id="resXgLocal" class="text-2xl font-extrabold text-emerald-400"></span>
+                        </div>
+                        <div class="pt-1">
+                            <span class="block text-[11px] text-slate-400 mb-1">Últimos 5 partidos (<span id="ptsLocal"></span>)</span>
+                            <div id="rachaLocal" class="flex justify-center gap-1.5"></div>
+                        </div>
+                    </div>
+
+                    <div class="text-slate-500 font-bold text-xl">VS</div>
+
+                    <!-- Visitante -->
+                    <div class="space-y-2">
+                        <h2 id="resNombreVisita" class="text-xl sm:text-2xl font-bold text-white"></h2>
+                        <span class="block text-xs text-slate-400">Visitante</span>
+                        <div class="inline-block bg-slate-950/80 border border-slate-700 px-5 py-2.5 rounded-xl">
+                            <span class="block text-xs text-slate-400">Goles Esperados (xG)</span>
+                            <span id="resXgVisita" class="text-2xl font-extrabold text-sky-400"></span>
+                        </div>
+                        <div class="pt-1">
+                            <span class="block text-[11px] text-slate-400 mb-1">Últimos 5 partidos (<span id="ptsVisita"></span>)</span>
+                            <div id="rachaVisita" class="flex justify-center gap-1.5"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lectura Táctica Automática -->
+                <div class="mt-6 bg-slate-950/70 border border-slate-700/80 rounded-xl p-4 text-xs sm:text-sm text-slate-200 flex items-start gap-3">
+                    <span class="text-emerald-400 font-bold uppercase tracking-wider shrink-0">Lectura:</span>
+                    <p id="resLecturaTactica" class="leading-relaxed"></p>
+                </div>
+            </div>
+
+            <!-- Grid Principal: Gráfica 1X2 + Mercados y Marcadores -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div class="lg:col-span-6 bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-4">
+                        Probabilidad de Resultado Final (1X2)
+                    </h3>
+                    <div class="h-64">
+                        <canvas id="grafica1x2"></canvas>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-6 space-y-6">
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-4">
+                            Marcadores Exactos Más Probables
+                        </h3>
+                        <div id="gridMarcadores" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+                        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-300">
+                            Mercados Estadísticos de Goles
+                        </h3>
+                        
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-300">Más de 2.5 Goles (Over 2.5)</span>
+                                <span id="txtOver25" class="font-bold text-emerald-400"></span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2.5">
+                                <div id="barOver25" class="bg-emerald-500 h-2.5 rounded-full" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-300">Menos de 2.5 Goles (Under 2.5)</span>
+                                <span id="txtUnder25" class="font-bold text-amber-400"></span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2.5">
+                                <div id="barUnder25" class="bg-amber-500 h-2.5 rounded-full" style="width: 0%"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-300">Ambos Equipos Marcan (BTTS - Sí)</span>
+                                <span id="txtBtts" class="font-bold text-sky-400"></span>
+                            </div>
+                            <div class="w-full bg-slate-800 rounded-full h-2.5">
+                                <div id="barBtts" class="bg-sky-500 h-2.5 rounded-full" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla Comparativa de Fuerza Relativa, Consistencia y Tiros -->
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-300 mb-1">
+                    Métricas Avanzadas de Consistencia y Rendimiento Relativo
+                </h3>
+                <p class="text-xs text-slate-400 mb-4">
+                    Ponderación 65% forma reciente / 35% temporada. Portería a cero y tiros al arco miden solidez y dominio real.
+                </p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs uppercase bg-slate-950 text-slate-400">
+                            <tr>
+                                <th class="px-4 py-3 rounded-l-lg">Equipo</th>
+                                <th class="px-4 py-3">Condición</th>
+                                <th class="px-4 py-3">Índice Ataque</th>
+                                <th class="px-4 py-3">Índice Defensa</th>
+                                <th class="px-4 py-3">Portería a Cero</th>
+                                <th class="px-4 py-3">Sin Anotar</th>
+                                <th class="px-4 py-3 rounded-r-lg">Tiros al Arco / PJ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaFuerzas" class="divide-y divide-slate-800"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <script>
+        let chartInstance = null;
+
+        async function inicializar() {
+            const resp = await fetch('/api/competiciones');
+            const ligas = await resp.json();
+            const selectLiga = document.getElementById('selectLiga');
+
+            const grupos = {};
+            ligas.forEach(l => {
+                if (!grupos[l.region]) grupos[l.region] = [];
+                grupos[l.region].push(l);
+            });
+
+            for (const [region, items] of Object.entries(grupos)) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = region;
+                items.forEach(item => {
+                    const opt = document.createElement('option');
+                    opt.value = item.id;
+                    opt.textContent = item.nombre;
+                    optgroup.appendChild(opt);
+                });
+                selectLiga.appendChild(optgroup);
+            }
+
+            selectLiga.addEventListener('change', () => cargarEquipos(false));
+            await cargarEquipos(false);
+        }
+
+        async function cargarEquipos(forzarActualizar = false) {
+            const compId = document.getElementById('selectLiga').value;
+            const badge = document.getElementById('badgePartidos');
+            const infoLiga = document.getElementById('infoLigaActiva');
+
+            badge.textContent = 'Sincronizando datos...';
+            ocultarError();
+
+            try {
+                const resp = await fetch(`/api/equipos/${compId}?actualizar=${forzarActualizar}`);
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.detail || 'Error cargando equipos');
+
+                const selectLocal = document.getElementById('selectLocal');
+                const selectVisita = document.getElementById('selectVisitante');
+                selectLocal.innerHTML = '';
+                selectVisita.innerHTML = '';
+
+                data.equipos.forEach(eq => {
+                    selectLocal.add(new Option(eq, eq));
+                    selectVisita.add(new Option(eq, eq));
+                });
+
+                if (data.equipos.length > 1) selectVisita.selectedIndex = 1;
+
+                badge.textContent = `${data.total_partidos} partidos analizados`;
+                infoLiga.textContent = `Competición activa: ${data.competicion} (${data.equipos.length} equipos registrados)`;
+            } catch (err) {
+                mostrarError(err.message);
+                badge.textContent = 'Error de carga';
+            }
+        }
+
+        async function ejecutarAnalisis() {
+            const compId = document.getElementById('selectLiga').value;
+            const local = document.getElementById('selectLocal').value;
+            const visitante = document.getElementById('selectVisitante').value;
+            ocultarError();
+
+            if (local === visitante) {
+                mostrarError('Selecciona dos equipos distintos para simular el enfrentamiento.');
+                return;
+            }
+
+            try {
+                const resp = await fetch('/api/predecir', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ competicion_id: compId, local, visitante })
+                });
+
+                const res = await resp.json();
+                if (!resp.ok) throw new Error(res.detail || 'Error al procesar predicción');
+                renderizarResultados(res);
+            } catch (err) {
+                mostrarError(err.message);
+            }
+        }
+
+        function renderizarBadgesRacha(contenedorId, rachaObj) {
+            const cont = document.getElementById(contenedorId);
+            cont.innerHTML = '';
+            rachaObj.secuencia.forEach(letra => {
+                let color = 'bg-slate-700 text-slate-200';
+                if (letra === 'G') color = 'bg-emerald-600 text-white';
+                if (letra === 'P') color = 'bg-rose-600 text-white';
+                cont.innerHTML += `<span class="w-6 h-6 rounded-md text-xs font-bold flex items-center justify-center ${color}">${letra}</span>`;
+            });
+        }
+
+        function renderizarResultados(res) {
+            document.getElementById('panelResultados').classList.remove('hidden');
+            document.getElementById('resCompeticion').textContent = res.competicion;
+            document.getElementById('resModeloActivo').textContent = res.modelo_activo;
+            document.getElementById('resNombreLocal').textContent = res.local;
+            document.getElementById('resNombreVisita').textContent = res.visitante;
+            document.getElementById('resXgLocal').textContent = res.xg_local.toFixed(2);
+            document.getElementById('resXgVisita').textContent = res.xg_visita.toFixed(2);
+            document.getElementById('resLecturaTactica').textContent = res.lectura_tactica;
+
+            // Rachas recientes
+            document.getElementById('ptsLocal').textContent = `${res.racha_local.puntos_obtenidos}/${res.racha_local.puntos_posibles} pts`;
+            document.getElementById('ptsVisita').textContent = `${res.racha_visita.puntos_obtenidos}/${res.racha_visita.puntos_posibles} pts`;
+            renderizarBadgesRacha('rachaLocal', res.racha_local);
+            renderizarBadgesRacha('rachaVisita', res.racha_visita);
+
+            // Mercados
+            const m = res.mercados;
+            document.getElementById('txtOver25').textContent = `${m.over_2_5}%`;
+            document.getElementById('barOver25').style.width = `${m.over_2_5}%`;
+            document.getElementById('txtUnder25').textContent = `${m.under_2_5}%`;
+            document.getElementById('barUnder25').style.width = `${m.under_2_5}%`;
+            document.getElementById('txtBtts').textContent = `${m.ambos_marcan_si}%`;
+            document.getElementById('barBtts').style.width = `${m.ambos_marcan_si}%`;
+
+            // Marcadores Exactos
+            const gridMarcadores = document.getElementById('gridMarcadores');
+            gridMarcadores.innerHTML = '';
+            res.top_marcadores.forEach(([marcador, prob]) => {
+                gridMarcadores.innerHTML += `
+                    <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+                        <div class="text-lg font-extrabold text-white">${marcador}</div>
+                        <div class="text-xs font-semibold text-emerald-400 mt-1">${prob}%</div>
+                    </div>
+                `;
+            });
+
+            // Tabla Avanzada
+            const fl = res.fuerzas_local;
+            const fv = res.fuerzas_visita;
+            const cl = res.consistencia_local;
+            const cv = res.consistencia_visita;
+            const tirosL = cl.tiros_arco_prom !== null ? `${cl.tiros_arco_prom}` : 'N/D';
+            const tirosV = cv.tiros_arco_prom !== null ? `${cv.tiros_arco_prom}` : 'N/D';
+
+            document.getElementById('tablaFuerzas').innerHTML = `
+                <tr>
+                    <td class="px-4 py-3 font-semibold text-white">${res.local}</td>
+                    <td class="px-4 py-3 text-slate-400">Local (${fl.pj_local} PJ)</td>
+                    <td class="px-4 py-3 font-mono text-emerald-400">${fl.ataque_local.toFixed(3)}</td>
+                    <td class="px-4 py-3 font-mono text-sky-400">${fl.defensa_local.toFixed(3)}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-200">${cl.clean_sheets_pct}%</td>
+                    <td class="px-4 py-3 text-slate-300">${cl.fail_to_score_pct}%</td>
+                    <td class="px-4 py-3 font-mono text-amber-400">${tirosL}</td>
+                </tr>
+                <tr>
+                    <td class="px-4 py-3 font-semibold text-white">${res.visitante}</td>
+                    <td class="px-4 py-3 text-slate-400">Visitante (${fv.pj_visita} PJ)</td>
+                    <td class="px-4 py-3 font-mono text-emerald-400">${fv.ataque_visita.toFixed(3)}</td>
+                    <td class="px-4 py-3 font-mono text-sky-400">${fv.defensa_visita.toFixed(3)}</td>
+                    <td class="px-4 py-3 font-semibold text-slate-200">${cv.clean_sheets_pct}%</td>
+                    <td class="px-4 py-3 text-slate-300">${cv.fail_to_score_pct}%</td>
+                    <td class="px-4 py-3 font-mono text-amber-400">${tirosV}</td>
+                </tr>
+            `;
+
+            // Gráfica Chart.js
+            const p = res.probabilidades_1x2;
+            const ctx = document.getElementById('grafica1x2').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [`Victoria ${res.local}`, 'Empate (X)', `Victoria ${res.visitante}`],
+                    datasets: [{
+                        label: 'Probabilidad (%)',
+                        data: [p.victoria_local, p.empate, p.victoria_visita],
+                        backgroundColor: ['#10b981', '#64748b', '#0ea5e9'],
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: '#1e293b' },
+                            ticks: { color: '#94a3b8', callback: v => v + '%' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#e2e8f0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function mostrarError(msg) {
+            const el = document.getElementById('alertaError');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+
+        function ocultarError() {
+            document.getElementById('alertaError').classList.add('hidden');
+        }
+
+        inicializar();
+    </script>
+</body>
+</html>
